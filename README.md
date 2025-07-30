@@ -35,17 +35,18 @@ After that you only need to use the docker image as the following example.
 
 $jadx
 
-> Due to various OS‑ and architecture‑specific limitations around exposing USB ports inside Docker containers, we’re sharing this **workaround** to use ADB, SSH, and Frida **over Wi‑Fi** from within the container.
+
+## Mobile Device Wi‑Fi Connectivity Guide
+
+Due to various OS‑ and architecture‑specific limitations around exposing USB ports inside Docker containers, we’re sharing this **workaround** to use ADB, SSH, and Frida **over Wi‑Fi** from within the container.
 
 ---
-
-## 🚀 Wi‑Fi Connectivity Guide
 
 Below are the steps to connect your Android and iOS devices over Wi‑Fi **from inside** the Docker container using ADB, SSH, and Frida.
 
 ---
 
-### 🔌 Android: ADB over Wi‑Fi
+### Android: ADB over Wi‑Fi
 
 > **Prerequisite**: On your **host** machine (outside the container), enable wireless debugging on the device:
 > ```
@@ -55,43 +56,43 @@ Below are the steps to connect your Android and iOS devices over Wi‑Fi **from 
 > This puts the device into TCP mode on port 5555.
 
 Then, **inside** the container:
+
+#### Re-connect via TCP (device is already listening)
 ```
-# Re-connect via TCP (device is already listening)
 adb connect <DEVICE_IP>:5555
-
-# Verify connection
+```
+#### Verify connection
+```
 adb devices
+```
+### Android: Frida over Wi‑Fi
 
-🐉 Android: Frida over Wi‑Fi
-
-    Push and start the Frida server (or frodo) on the device:
-
+Push and start the Frida server on the device:
+```
 adb shell "su -c 'nohup /data/local/tmp/frida-server 0.0.0.0:27042 >/dev/null 2>&1 &'"
-sleep 1
-
+```
 From inside the container, list processes via Frida:
+```
+frida-ps -H <DEVICE_IP>:27042
+```
 
-    frida-ps -H <DEVICE_IP>:27042
+### iOS: Frida via SSH + Wi‑Fi
 
-🍏 iOS: Frida via SSH + Wi‑Fi
+> **Prerequisite**: Frida installed on your iPhone (e.g. via Sileo) so that frida-server auto-starts.
 
-    Prerequisite: Frida installed on your iPhone (e.g. via Sileo) so that frida-server auto-starts.
-
-    From inside the container, establish an SSH tunnel:
-
-ssh -o ExitOnForwardFailure=yes -fNT \
-    -L 27042:127.0.0.1:27042 \
-    root@<IPHONE_IP>
-
+From inside the container, establish an SSH tunnel:
+```
+ssh -o ExitOnForwardFailure=yes -fNT -L 27042:127.0.0.1:27042 root@<IPHONE_IP>
+```
 Verify the tunnel and list processes remotely:
-
+```
 frida-ps -H 127.0.0.1:27042
-
+```
 To close the tunnel when you’re done:
-
+```
 pkill -9 -f 'ssh.*27042'
+```
 
-
-Additional tool implementations
+## Additional tool implementations
 
 Some additional tools were added to this docker image as Nuclei, disarm and more! These aren't within the OWASP Project (https://mas.owasp.org/MASTG/tools) if you want to add any additional tool, please create a PR for this repo with the tool and the instructions.
