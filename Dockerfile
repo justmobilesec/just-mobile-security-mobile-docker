@@ -14,6 +14,7 @@ RUN apt-get update && \
         gnupg2 \
         curl \
         wget \
+        openssh-client \
         build-essential \
         libmagic-dev \
         ca-certificates \
@@ -189,18 +190,50 @@ RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -
    echo '#!/bin/bash\njava -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
    chmod +x /usr/local/bin/apktool
 
-# Install Android SDK tools (includes aapt2, adb, apksigner, etc.)
-ENV ANDROID_SDK_ROOT=/opt/android-sdk
+# — ANDROID SDK (última versión, multiplataforma) —
+
+# --- 1) Prepara dependencias básicas ---
+ARG TARGETARCH
+ARG ANDROID_SDK_ROOT=/opt/android-sdk
+ENV ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget unzip && \
+    rm -rf /var/lib/apt/lists/*
+
+# --- 2) Descarga y extrae los command-line tools ---
+ARG CMDLINE_TOOLS_VERSION=9477386
 RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
-   wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/android-sdk.zip && \
-   unzip /tmp/android-sdk.zip -d ${ANDROID_SDK_ROOT}/cmdline-tools && \
-   mv ${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools ${ANDROID_SDK_ROOT}/cmdline-tools/latest && \
-   rm /tmp/android-sdk.zip && \
-   yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses && \
-   ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "build-tools;34.0.0" && \
-   ln -s ${ANDROID_SDK_ROOT}/platform-tools/adb /usr/local/bin/adb && \
-   ln -s ${ANDROID_SDK_ROOT}/build-tools/34.0.0/apksigner /usr/local/bin/apksigner && \
-   ln -s ${ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt2 /usr/local/bin/aapt2
+    cd ${ANDROID_SDK_ROOT}/cmdline-tools && \
+    wget https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip \
+         -O cmdline-tools.zip && \
+    unzip cmdline-tools.zip && \
+    rm cmdline-tools.zip && \
+    mv cmdline-tools latest
+ENV PATH=${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${PATH}
+
+# 3) Instala platform-tools
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      # en amd64 tiramos de sdkmanager normal
+      yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses && \
+      sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools"; \
+    else \
+      # en arm64 usamos los paquetes de Ubuntu
+      apt-get update && \
+      apt-get install -y --no-install-recommends android-tools-adb android-tools-fastboot && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# 4) Symlinks: solo en amd64 apuntamos a las platform-tools y build-tools de Google
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      # adb & fastboot
+      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb"      /usr/local/bin/adb && \
+      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/fastboot" /usr/local/bin/fastboot && \
+      # apksigner & aapt2 (ajusta la versión de build-tools según la hayas instalado)
+      BUILD_TOOLS="$(ls ${ANDROID_SDK_ROOT}/build-tools)" && \
+      ln -sf "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner" /usr/local/bin/apksigner && \
+      ln -sf "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/aapt2"       /usr/local/bin/aapt2; \
+    fi
+
 
 #OK#
 # Install uber-apk-signer
