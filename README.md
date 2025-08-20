@@ -16,24 +16,36 @@
 # just-mobile-security-mobile-docker
 This Docker aims to help to the Mobile Cybersecurity Community to have several Android and iOS Tools pre-configured.
 
-This docker was tested for Ubuntu 22.04 and using the MASTG TOOLS (https://mas.owasp.org/MASTG/tools) as reference. Covering the Generic, Android, iOS and Network tools in case it applies.
+This docker was tested for Ubuntu 22.04 and using the [MASTG TOOLS](https://mas.owasp.org/MASTG/tools) as reference. Covering the Generic, Android, iOS and Network tools in case it applies.
+
+The full list implemented is covered in the following documment [Docker MASWE List Android & iOS](https://docs.google.com/spreadsheets/d/10kHjVb7YZzyA_nzCAFTjtfaSZa9TnsAgILbttIPcYTE/edit?gid=1839499844#gid=1839499844)
+
+## Prerequisites
+
+Docker Desktop is required to run this project locally. Please install Docker Desktop for your operating system before continuing.
+
+macOS — [Install Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/). 
+
+Ubuntu — [Install Docker Engine on Ubuntu](https://docs.docker.com/desktop/setup/install/linux/ubuntu/)
+
+Linux (All distros) — [Install Docker Desktop for Linux](https://docs.docker.com/desktop/setup/install/linux/) 
+
+Windows — [Install Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
+><sub>In Windows Docker Desktop uses the WSL 2 backend on modern Windows; please make sure WSL 2 is enabled and configured before installing. </sub>
 
 
-The full list implemented is covered in the following documment https://docs.google.com/spreadsheets/d/10kHjVb7YZzyA_nzCAFTjtfaSZa9TnsAgILbttIPcYTE/edit?gid=1839499844#gid=1839499844 
 
-How to run it?
-
-* Docker configuration.
+### How to run it?
 
 1. Download the git project.
 2. Build the docker container.
-2.1. sudo docker build -t just-mobile-security-mobile-docker .
+> sudo docker build -t just-mobile-security-mobile-docker .
 3. Run the container
-3.1. docker run -it --rm -v $(pwd):/workspace just-mobile-security-mobile-docker	
+> docker run -it --rm -v $(pwd):/workspace just-mobile-security-mobile-docker	
 
 After that you only need to use the docker image as the following example.
 
-$jadx
+> $ jadx
 
 
 ## Mobile Device Wi‑Fi Connectivity Guide
