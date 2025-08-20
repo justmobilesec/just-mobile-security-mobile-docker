@@ -2,8 +2,6 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}"
-
 ARG TARGETARCH
 
 # Step 1: Install base tools and add repository
@@ -61,6 +59,8 @@ RUN apt-get update && \
         libssl-dev \
         lldb \
         busybox \
+        jq \
+        tar \
         # Optional tools (heavy or pending review)
         # gdb \
         # tcpdump \
@@ -81,33 +81,27 @@ RUN curl -L -o /opt/mobile-docker/bin/dependency-check.zip "https://github.com/j
     rm /opt/mobile-docker/bin/dependency-check.zip
 
 
-#Install Go
-ENV GOROOT=/usr/local/go
-ENV GOPATH=/go
-ENV PATH=$PATH:$GOROOT/bin:$GOPATH/bin
-# Instala Go solo si la arquitectura es soportada (amd64 o arm64)
-RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
-      ARCH=$TARGETARCH && \
-      echo "[INFO] Installing Go for architecture: $ARCH" && \
-      curl -s https://go.dev/dl/ | grep "linux-${ARCH}.tar.gz" | head -n 1 | \
-      grep -oP 'href="\K[^"]+' | \
-      xargs -I {} curl -sSL -o go.tar.gz https://go.dev{} && \
-      tar -C /usr/local -xzf go.tar.gz && \
-      rm go.tar.gz ; \
-    else \
-      echo "[INFO] Skipping Go install: unsupported architecture '$TARGETARCH'" ; \
-    fi
 #OK#
 # Install Nuclei   
-RUN if command -v go > /dev/null; then \
-      echo "[INFO] Installing nuclei..." && \
-      mkdir -p /opt/mobile-docker/bin/nuclei && \
-      go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-      mv $GOPATH/bin/nuclei /opt/mobile-docker/bin/nuclei/nuclei && \
-      ln -s /opt/mobile-docker/bin/nuclei/nuclei /usr/local/bin/nuclei ; \
-    else \
-      echo "[INFO] Skipping nuclei install: Go not available" ; \
-    fi
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) ARCH="amd64" ;; \
+      arm64) ARCH="arm64" ;; \
+      *) echo "[INFO] skipping nuclei: unsupported arch ${TARGETARCH}"; exit 0 ;; \
+    esac; \
+    RELEASE_API="https://api.github.com/repos/projectdiscovery/nuclei/releases/latest"; \
+    ASSET_URL=$(curl -sSL "$RELEASE_API" | jq -r --arg a "$ARCH" '.assets[] | select(.name|test("linux|"+$a)) | .browser_download_url' | head -n1); \
+    if [ -z "$ASSET_URL" ]; then echo "[ERROR] no nuclei asset found for ${ARCH}"; exit 1; fi; \
+    TMPDIR=$(mktemp -d); \
+    curl -sSL "$ASSET_URL" -o "$TMPDIR/asset"; \
+    if file "$TMPDIR/asset" | grep -q 'Zip archive'; then unzip -q "$TMPDIR/asset" -d "$TMPDIR"; \
+    elif file "$TMPDIR/asset" | grep -q 'gzip compressed data'; then tar -C "$TMPDIR" -xzf "$TMPDIR/asset"; \
+    else mv "$TMPDIR/asset" "$TMPDIR/nuclei"; fi; \
+    BIN=$(find "$TMPDIR" -type f -name 'nuclei' -perm /111 | head -n1) || true; \
+    if [ -z "$BIN" ]; then echo "[ERROR] nuclei binary not found in $TMPDIR"; ls -la "$TMPDIR"; exit 1; fi; \
+    mv "$BIN" /usr/local/bin/nuclei; chmod +x /usr/local/bin/nuclei; \
+    rm -rf "$TMPDIR"; \
+    echo "[OK] nuclei installed: $(/usr/local/bin/nuclei -version || true)"
 
 #OK#
 RUN mkdir -p /opt/mobile-docker/bin/radare2 && \
