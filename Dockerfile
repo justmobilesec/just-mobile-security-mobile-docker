@@ -186,16 +186,17 @@ RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -
 
 # — ANDROID SDK (última versión, multiplataforma) —
 
-# --- 1) Prepara dependencias básicas ---
+# ========= ANDROID SDK (bloque común) =========
 ARG TARGETARCH
 ARG ANDROID_SDK_ROOT=/opt/android-sdk
+ARG ANDROID_BUILD_TOOLS_VERSION=34.0.0
+ARG CMDLINE_TOOLS_VERSION=9477386
 ENV ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}
+ENV ANDROID_BUILD_TOOLS_VERSION=${ANDROID_BUILD_TOOLS_VERSION}
 RUN apt-get update && \
     apt-get install -y --no-install-recommends wget unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# --- 2) Descarga y extrae los command-line tools ---
-ARG CMDLINE_TOOLS_VERSION=9477386
 RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
     cd ${ANDROID_SDK_ROOT}/cmdline-tools && \
     wget https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip \
@@ -205,28 +206,34 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
     mv cmdline-tools latest
 ENV PATH=${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${PATH}
 
-# 3) Instala platform-tools
+# ========= ANDROID SDK (AMD64) INICIO =========
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      # en amd64 tiramos de sdkmanager normal
       yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses && \
-      sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools"; \
-    else \
-      # en arm64 usamos los paquetes de Ubuntu
+      sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+        "platform-tools" \
+        "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"; \
+    fi
+
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      BUILD_TOOLS_DIR="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"; \
+      if [ ! -d "$BUILD_TOOLS_DIR" ]; then \
+        echo "[ERROR] Expected Android build-tools in $BUILD_TOOLS_DIR"; \
+        exit 1; \
+      fi; \
+      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb" /usr/local/bin/adb && \
+      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/fastboot" /usr/local/bin/fastboot && \
+      ln -sf "$BUILD_TOOLS_DIR/apksigner" /usr/local/bin/apksigner && \
+      ln -sf "$BUILD_TOOLS_DIR/aapt2" /usr/local/bin/aapt2; \
+    fi
+# ========= ANDROID SDK (AMD64) FIN =========
+
+# ========= ANDROID SDK (ARM64) INICIO =========
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
       apt-get update && \
       apt-get install -y --no-install-recommends android-tools-adb android-tools-fastboot && \
       rm -rf /var/lib/apt/lists/*; \
     fi
-
-# 4) Symlinks: solo en amd64 apuntamos a las platform-tools y build-tools de Google
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      # adb & fastboot
-      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb"      /usr/local/bin/adb && \
-      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/fastboot" /usr/local/bin/fastboot && \
-      # apksigner & aapt2 (ajusta la versión de build-tools según la hayas instalado)
-      BUILD_TOOLS="$(ls ${ANDROID_SDK_ROOT}/build-tools)" && \
-      ln -sf "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner" /usr/local/bin/apksigner && \
-      ln -sf "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/aapt2"       /usr/local/bin/aapt2; \
-    fi
+# ========= ANDROID SDK (ARM64) FIN =========
 
 
 #OK#
