@@ -33,6 +33,9 @@ RUN apt-get update && \
         python-is-python3 && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
+# Some third-party tools still look for /usr/bin/python
+RUN if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python3 /usr/bin/python; fi
+
 
 # Step 4: Set up Python virtual environment and install pip using ensurepip
 RUN python3.12 -m venv /opt/mobile-docker && \
@@ -224,6 +227,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
       ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb" /usr/local/bin/adb && \
       ln -sf "${ANDROID_SDK_ROOT}/platform-tools/fastboot" /usr/local/bin/fastboot && \
       ln -sf "$BUILD_TOOLS_DIR/apksigner" /usr/local/bin/apksigner && \
+      ln -sf "$BUILD_TOOLS_DIR/aapt" /usr/local/bin/aapt && \
       ln -sf "$BUILD_TOOLS_DIR/aapt2" /usr/local/bin/aapt2; \
     fi
 # ========= ANDROID SDK (AMD64) FIN =========
@@ -346,8 +350,26 @@ RUN ln -s /opt/mobile-docker/bin/jnitrace /usr/local/bin/jnitrace
 
 # Install mitmproxy in virtual env
 RUN /opt/mobile-docker/bin/pip3.12 install mitmproxy
-RUN /opt/mobile-docker/bin/pip3.12 install 'bcrypt<4'
+RUN /opt/mobile-docker/bin/pip3.12 install "bcrypt<4" && \
+    /opt/mobile-docker/bin/python - <<'PY'
+import bcrypt, sys
+sys.exit(0 if bcrypt.__version__.startswith("3.") else 1)
+PY
 RUN ln -s /opt/mobile-docker/bin/mitmproxy /usr/local/bin/mitmproxy
+
+# Ensure CLI wrappers use the virtual environment's interpreter
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/apkx/apkx "$@"' \
+    > /usr/local/bin/apkx && chmod +x /usr/local/bin/apkx
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/mobile-docker/bin/fridump/fridump.py "$@"' \
+    > /usr/local/bin/fridump && chmod +x /usr/local/bin/fridump
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/frida-ios-dump/dump.py "$@"' \
+    > /usr/local/bin/frida-ios-dump && chmod +x /usr/local/bin/frida-ios-dump
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/frida-ipa-dump/dump.py "$@"' \
+    > /usr/local/bin/frida-ipa-dump && chmod +x /usr/local/bin/frida-ipa-dump
 
 # Install jdb (already included with OpenJDK, just ensure symlink)
 RUN ln -s /usr/lib/jvm/java-17-openjdk-amd64/bin/jdb /usr/local/bin/jdb
