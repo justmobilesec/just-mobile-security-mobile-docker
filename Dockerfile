@@ -188,9 +188,9 @@ RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -
    echo '#!/bin/bash\njava -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
    chmod +x /usr/local/bin/apktool
 
-# — ANDROID SDK (última versión, multiplataforma) —
+# — ANDROID SDK (latest cross-platform release) —
 
-# ========= ANDROID SDK (bloque común) =========
+# ========= ANDROID SDK (common block) =========
 ARG TARGETARCH
 ARG ANDROID_SDK_ROOT=/opt/android-sdk
 ARG ANDROID_BUILD_TOOLS_VERSION=34.0.0
