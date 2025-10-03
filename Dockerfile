@@ -29,7 +29,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3.12 \
         python3.12-venv \
-        python3-clang-12 && \
+        python3-clang-12 \
+        python-is-python3 && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 
@@ -251,35 +252,39 @@ RUN wget https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/
 #    chmod +x /usr/local/bin/justtrustme
 
 #OK#
-# Install apkx
+# Install apkx with venv wrapper (script expects python interpreter)
 RUN git clone https://github.com/b-mueller/apkx.git /opt/apkx && \
    cd /opt/apkx && \
    chmod +x apkx && \
-   ln -s /opt/apkx/apkx /usr/local/bin/apkx
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/apkx/apkx "$@"\n' > /usr/local/bin/apkx && \
+   chmod +x /usr/local/bin/apkx
 
 #################
 ###Frida Based###
 #################
 
-# Install Fridump
+# Install Fridump (provide wrapper to execute with venv python)
 RUN git clone https://github.com/Nightbringer21/fridump.git /opt/mobile-docker/bin/fridump && \
    cd /opt/mobile-docker/bin/fridump && \
    chmod +x fridump.py && \
-   ln -s /opt/mobile-docker/bin/fridump/fridump.py /usr/local/bin/fridump
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/mobile-docker/bin/fridump/fridump.py "$@"\n' > /usr/local/bin/fridump && \
+   chmod +x /usr/local/bin/fridump
 
 # Install frida-ios-dump
 RUN git clone https://github.com/AloneMonkey/frida-ios-dump.git /opt/frida-ios-dump && \
    cd /opt/frida-ios-dump && \
    /opt/mobile-docker/bin/pip3.12 install -r requirements.txt && \
    chmod +x dump.py && \
-   ln -s /opt/frida-ios-dump/dump.py /usr/local/bin/frida-ios-dump
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/frida-ios-dump/dump.py "$@"\n' > /usr/local/bin/frida-ios-dump && \
+   chmod +x /usr/local/bin/frida-ios-dump
 
 # Install frida-ipa-dump (assuming a similar tool, using a placeholder if no official repo)
 RUN git clone https://github.com/AloneMonkey/frida-ios-dump.git /opt/frida-ipa-dump && \
    cd /opt/frida-ipa-dump && \
    /opt/mobile-docker/bin/pip3.12 install -r requirements.txt && \
    chmod +x dump.py && \
-   ln -s /opt/frida-ipa-dump/dump.py /usr/local/bin/frida-ipa-dump && \
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/frida-ipa-dump/dump.py "$@"\n' > /usr/local/bin/frida-ipa-dump && \
+   chmod +x /usr/local/bin/frida-ipa-dump && \
    echo "Note: frida-ipa-dump is assumed to be similar to frida-ios-dump; adjust if a different tool #is intended" > /usr/local/bin/frida-ipa-dump-note
 
 
@@ -341,6 +346,7 @@ RUN ln -s /opt/mobile-docker/bin/jnitrace /usr/local/bin/jnitrace
 
 # Install mitmproxy in virtual env
 RUN /opt/mobile-docker/bin/pip3.12 install mitmproxy
+RUN /opt/mobile-docker/bin/pip3.12 install 'bcrypt<4'
 RUN ln -s /opt/mobile-docker/bin/mitmproxy /usr/local/bin/mitmproxy
 
 # Install jdb (already included with OpenJDK, just ensure symlink)
