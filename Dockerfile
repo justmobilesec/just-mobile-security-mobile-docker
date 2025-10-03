@@ -230,7 +230,11 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 # ========= ANDROID SDK (ARM64) INICIO =========
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       apt-get update && \
-      apt-get install -y --no-install-recommends android-tools-adb android-tools-fastboot && \
+      apt-get install -y --no-install-recommends \
+        android-tools-adb \
+        android-tools-fastboot \
+        aapt \
+        apksigner && \
       rm -rf /var/lib/apt/lists/*; \
     fi
 # ========= ANDROID SDK (ARM64) FIN =========
