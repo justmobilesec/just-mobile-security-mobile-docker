@@ -29,6 +29,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3.12 \
         python3.12-venv \
+        python3.12-dev \
         python3-clang-12 \
         python-is-python3 && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
@@ -118,7 +119,8 @@ RUN mkdir -p /opt/mobile-docker/bin/radare2 && \
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
       echo "[INFO] Installing disarm (x86_64 only)..." && \
       mkdir -p /opt/mobile-docker/bin/disarm && \
-      curl -sSL -o /opt/mobile-docker/bin/disarm/disarm.tar https://newosxbook.com/tools/disarm.tar && \
+      # upstream tarball was removed; fall back to a stable web-archive snapshot
+      curl -fsSL -o /opt/mobile-docker/bin/disarm/disarm.tar https://web.archive.org/web/20240401070850if_/https://newosxbook.com/tools/disarm.tar && \
       tar -xvf /opt/mobile-docker/bin/disarm/disarm.tar -C /opt/mobile-docker/bin/disarm && \
       chmod +x /opt/mobile-docker/bin/disarm/binaries/disarm.x86 && \
       ln -s /opt/mobile-docker/bin/disarm/binaries/disarm.x86 /usr/local/bin/disarm && \
