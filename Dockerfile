@@ -29,8 +29,13 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3.12 \
         python3.12-venv \
-        python3-clang-12 && \
+        python3.12-dev \
+        python3-clang-12 \
+        python-is-python3 && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+# Some third-party tools still look for /usr/bin/python
+RUN if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python3 /usr/bin/python; fi
 
 
 # Step 4: Set up Python virtual environment and install pip using ensurepip
@@ -114,7 +119,8 @@ RUN mkdir -p /opt/mobile-docker/bin/radare2 && \
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
       echo "[INFO] Installing disarm (x86_64 only)..." && \
       mkdir -p /opt/mobile-docker/bin/disarm && \
-      curl -sSL -o /opt/mobile-docker/bin/disarm/disarm.tar https://newosxbook.com/tools/disarm.tar && \
+      # upstream tarball was removed; fall back to a stable web-archive snapshot
+      curl -fsSL -o /opt/mobile-docker/bin/disarm/disarm.tar https://web.archive.org/web/20240401070850if_/https://newosxbook.com/tools/disarm.tar && \
       tar -xvf /opt/mobile-docker/bin/disarm/disarm.tar -C /opt/mobile-docker/bin/disarm && \
       chmod +x /opt/mobile-docker/bin/disarm/binaries/disarm.x86 && \
       ln -s /opt/mobile-docker/bin/disarm/binaries/disarm.x86 /usr/local/bin/disarm && \
@@ -184,18 +190,19 @@ RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -
    echo '#!/bin/bash\njava -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
    chmod +x /usr/local/bin/apktool
 
-# — ANDROID SDK (última versión, multiplataforma) —
+# — ANDROID SDK (latest cross-platform release) —
 
-# --- 1) Prepara dependencias básicas ---
+# ========= ANDROID SDK (common block) =========
 ARG TARGETARCH
 ARG ANDROID_SDK_ROOT=/opt/android-sdk
+ARG ANDROID_BUILD_TOOLS_VERSION=34.0.0
+ARG CMDLINE_TOOLS_VERSION=9477386
 ENV ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}
+ENV ANDROID_BUILD_TOOLS_VERSION=${ANDROID_BUILD_TOOLS_VERSION}
 RUN apt-get update && \
     apt-get install -y --no-install-recommends wget unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# --- 2) Descarga y extrae los command-line tools ---
-ARG CMDLINE_TOOLS_VERSION=9477386
 RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
     cd ${ANDROID_SDK_ROOT}/cmdline-tools && \
     wget https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip \
@@ -205,28 +212,39 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
     mv cmdline-tools latest
 ENV PATH=${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${PATH}
 
-# 3) Instala platform-tools
+# ========= ANDROID SDK (AMD64) INICIO =========
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      # en amd64 tiramos de sdkmanager normal
       yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses && \
-      sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools"; \
-    else \
-      # en arm64 usamos los paquetes de Ubuntu
-      apt-get update && \
-      apt-get install -y --no-install-recommends android-tools-adb android-tools-fastboot && \
-      rm -rf /var/lib/apt/lists/*; \
+      sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+        "platform-tools" \
+        "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"; \
     fi
 
-# 4) Symlinks: solo en amd64 apuntamos a las platform-tools y build-tools de Google
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      # adb & fastboot
-      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb"      /usr/local/bin/adb && \
+      BUILD_TOOLS_DIR="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"; \
+      if [ ! -d "$BUILD_TOOLS_DIR" ]; then \
+        echo "[ERROR] Expected Android build-tools in $BUILD_TOOLS_DIR"; \
+        exit 1; \
+      fi; \
+      ln -sf "${ANDROID_SDK_ROOT}/platform-tools/adb" /usr/local/bin/adb && \
       ln -sf "${ANDROID_SDK_ROOT}/platform-tools/fastboot" /usr/local/bin/fastboot && \
-      # apksigner & aapt2 (ajusta la versión de build-tools según la hayas instalado)
-      BUILD_TOOLS="$(ls ${ANDROID_SDK_ROOT}/build-tools)" && \
-      ln -sf "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/apksigner" /usr/local/bin/apksigner && \
-      ln -sf "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS}/aapt2"       /usr/local/bin/aapt2; \
+      ln -sf "$BUILD_TOOLS_DIR/apksigner" /usr/local/bin/apksigner && \
+      ln -sf "$BUILD_TOOLS_DIR/aapt" /usr/local/bin/aapt && \
+      ln -sf "$BUILD_TOOLS_DIR/aapt2" /usr/local/bin/aapt2; \
     fi
+# ========= ANDROID SDK (AMD64) FIN =========
+
+# ========= ANDROID SDK (ARM64) INICIO =========
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends \
+        android-tools-adb \
+        android-tools-fastboot \
+        aapt \
+        apksigner && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+# ========= ANDROID SDK (ARM64) FIN =========
 
 
 #OK#
@@ -240,35 +258,39 @@ RUN wget https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/
 #    chmod +x /usr/local/bin/justtrustme
 
 #OK#
-# Install apkx
+# Install apkx with venv wrapper (script expects python interpreter)
 RUN git clone https://github.com/b-mueller/apkx.git /opt/apkx && \
    cd /opt/apkx && \
    chmod +x apkx && \
-   ln -s /opt/apkx/apkx /usr/local/bin/apkx
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/apkx/apkx "$@"\n' > /usr/local/bin/apkx && \
+   chmod +x /usr/local/bin/apkx
 
 #################
 ###Frida Based###
 #################
 
-# Install Fridump
+# Install Fridump (provide wrapper to execute with venv python)
 RUN git clone https://github.com/Nightbringer21/fridump.git /opt/mobile-docker/bin/fridump && \
    cd /opt/mobile-docker/bin/fridump && \
    chmod +x fridump.py && \
-   ln -s /opt/mobile-docker/bin/fridump/fridump.py /usr/local/bin/fridump
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/mobile-docker/bin/fridump/fridump.py "$@"\n' > /usr/local/bin/fridump && \
+   chmod +x /usr/local/bin/fridump
 
 # Install frida-ios-dump
 RUN git clone https://github.com/AloneMonkey/frida-ios-dump.git /opt/frida-ios-dump && \
    cd /opt/frida-ios-dump && \
    /opt/mobile-docker/bin/pip3.12 install -r requirements.txt && \
    chmod +x dump.py && \
-   ln -s /opt/frida-ios-dump/dump.py /usr/local/bin/frida-ios-dump
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/frida-ios-dump/dump.py "$@"\n' > /usr/local/bin/frida-ios-dump && \
+   chmod +x /usr/local/bin/frida-ios-dump
 
 # Install frida-ipa-dump (assuming a similar tool, using a placeholder if no official repo)
 RUN git clone https://github.com/AloneMonkey/frida-ios-dump.git /opt/frida-ipa-dump && \
    cd /opt/frida-ipa-dump && \
    /opt/mobile-docker/bin/pip3.12 install -r requirements.txt && \
    chmod +x dump.py && \
-   ln -s /opt/frida-ipa-dump/dump.py /usr/local/bin/frida-ipa-dump && \
+   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/frida-ipa-dump/dump.py "$@"\n' > /usr/local/bin/frida-ipa-dump && \
+   chmod +x /usr/local/bin/frida-ipa-dump && \
    echo "Note: frida-ipa-dump is assumed to be similar to frida-ios-dump; adjust if a different tool #is intended" > /usr/local/bin/frida-ipa-dump-note
 
 
@@ -330,7 +352,26 @@ RUN ln -s /opt/mobile-docker/bin/jnitrace /usr/local/bin/jnitrace
 
 # Install mitmproxy in virtual env
 RUN /opt/mobile-docker/bin/pip3.12 install mitmproxy
+RUN /opt/mobile-docker/bin/pip3.12 install "bcrypt<4" && \
+    /opt/mobile-docker/bin/python - <<'PY'
+import bcrypt, sys
+sys.exit(0 if bcrypt.__version__.startswith("3.") else 1)
+PY
 RUN ln -s /opt/mobile-docker/bin/mitmproxy /usr/local/bin/mitmproxy
+
+# Ensure CLI wrappers use the virtual environment's interpreter
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/apkx/apkx "$@"' \
+    > /usr/local/bin/apkx && chmod +x /usr/local/bin/apkx
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/mobile-docker/bin/fridump/fridump.py "$@"' \
+    > /usr/local/bin/fridump && chmod +x /usr/local/bin/fridump
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/frida-ios-dump/dump.py "$@"' \
+    > /usr/local/bin/frida-ios-dump && chmod +x /usr/local/bin/frida-ios-dump
+RUN printf '%s\n' '#!/usr/bin/env bash' \
+    'exec /opt/mobile-docker/bin/python /opt/frida-ipa-dump/dump.py "$@"' \
+    > /usr/local/bin/frida-ipa-dump && chmod +x /usr/local/bin/frida-ipa-dump
 
 # Install jdb (already included with OpenJDK, just ensure symlink)
 RUN ln -s /usr/lib/jvm/java-17-openjdk-amd64/bin/jdb /usr/local/bin/jdb
