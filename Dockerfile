@@ -10,6 +10,7 @@ RUN apt-get update && \
         software-properties-common \
         checkinstall \
         gnupg2 \
+        zsh \
         curl \
         wget \
         openssh-client \
@@ -72,6 +73,12 @@ RUN apt-get update && \
         # tshark \
         # wireshark \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+# Step 5.1: Install Oh My Zsh for a nicer interactive shell
+RUN git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /root/.oh-my-zsh && \
+    cp /root/.oh-my-zsh/templates/zshrc.zsh-template /root/.zshrc && \
+    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="robbyrussell"/' /root/.zshrc && \
+    sed -i 's/^# DISABLE_AUTO_UPDATE=.*/DISABLE_AUTO_UPDATE="true"/' /root/.zshrc
 
 
 ########################    
@@ -488,4 +495,4 @@ RUN apt-get update && apt-get install -y binutils && \
 WORKDIR /just-mobile-security-mobile-docker
 
 # Default command
-CMD ["/bin/bash"]
+CMD ["/bin/zsh"]
