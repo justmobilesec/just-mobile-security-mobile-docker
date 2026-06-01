@@ -193,9 +193,9 @@ RUN wget https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip 
 
 #OK#
 # Install APKTool
-RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O /opt/apktool.jar && \
-   echo '#!/bin/bash\njava -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
-   chmod +x /usr/local/bin/apktool
+#RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O /opt/apktool.jar && \
+#   echo '#!/bin/bash\njava -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
+#   chmod +x /usr/local/bin/apktool
 
 # — ANDROID SDK (latest cross-platform release) —
 
