@@ -20,6 +20,10 @@ This docker was tested for Ubuntu 22.04 and using the [MASTG TOOLS](https://mas.
 
 The full list implemented is covered in the following documment [Docker MASWE List Android & iOS](https://docs.google.com/spreadsheets/d/10kHjVb7YZzyA_nzCAFTjtfaSZa9TnsAgILbttIPcYTE/edit?gid=1839499844#gid=1839499844)
 
+## Responsible Use
+
+This toolkit gathers penetration testing and research utilities. Use it only on systems where you have explicit permission and comply with all applicable laws. The maintainers do not endorse or take responsibility for malicious or unauthorized activity carried out with this image.
+
 ## Prerequisites
 
 Docker Desktop is required to run this project locally. Please install Docker Desktop for your operating system before continuing.
