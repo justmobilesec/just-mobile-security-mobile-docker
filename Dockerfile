@@ -1,4 +1,8 @@
-FROM ubuntu:22.04
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+
+FROM ubuntu:22.04@sha256:b8b6ee6aa931ecd9d0d952abc34dc0e5f7c6a30c6bb71b079fe399fde0329c02
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -42,7 +46,11 @@ RUN if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python3 /usr/bin/python; fi
 # Step 4: Set up Python virtual environment and install pip using ensurepip
 RUN python3.12 -m venv /opt/mobile-docker && \
     /opt/mobile-docker/bin/python -m ensurepip && \
-    /opt/mobile-docker/bin/pip install --upgrade pip setuptools wheel
+    /opt/mobile-docker/bin/pip install --no-cache-dir --upgrade \
+        pip==26.2.1 \
+        setuptools==84.0.0 \
+        wheel==0.48.0
+ENV PATH=/opt/mobile-docker/bin:${PATH}
 
 # Step 5: Additional tools
 RUN apt-get update && \
@@ -75,7 +83,10 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Step 5.1: Install Oh My Zsh for a nicer interactive shell
-RUN git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /root/.oh-my-zsh && \
+ARG OH_MY_ZSH_REF=40bddc3c1a100feafccb01403f74c1d4e7380380
+RUN mkdir -p /root/.oh-my-zsh && \
+    curl -fsSL --retry 3 "https://github.com/ohmyzsh/ohmyzsh/archive/${OH_MY_ZSH_REF}.tar.gz" | \
+        tar -xz --strip-components=1 -C /root/.oh-my-zsh && \
     cp /root/.oh-my-zsh/templates/zshrc.zsh-template /root/.zshrc && \
     sed -i 's/^ZSH_THEME=.*/ZSH_THEME="robbyrussell"/' /root/.zshrc && \
     sed -i 's/^# DISABLE_AUTO_UPDATE=.*/DISABLE_AUTO_UPDATE="true"/' /root/.zshrc
@@ -87,7 +98,11 @@ RUN git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /root/.oh-my-zsh 
 
 # Install Dependency-check #
 #OK#
-RUN curl -L -o /opt/mobile-docker/bin/dependency-check.zip "https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip" && \
+ARG DEPENDENCY_CHECK_VERSION=12.1.0
+ARG DEPENDENCY_CHECK_SHA256=0e5ba6ae58e753d5841048c6c8e495dbc4c7a4ea921a2b14daeac65195700532
+RUN curl -fsSL --retry 3 -o /opt/mobile-docker/bin/dependency-check.zip \
+        "https://github.com/jeremylong/DependencyCheck/releases/download/v${DEPENDENCY_CHECK_VERSION}/dependency-check-${DEPENDENCY_CHECK_VERSION}-release.zip" && \
+    echo "${DEPENDENCY_CHECK_SHA256}  /opt/mobile-docker/bin/dependency-check.zip" | sha256sum -c - && \
     unzip /opt/mobile-docker/bin/dependency-check.zip -d /opt/mobile-docker/bin && \
     ln -s /opt/mobile-docker/bin/dependency-check/bin/dependency-check.sh /usr/local/bin/dependency-check && \
     rm /opt/mobile-docker/bin/dependency-check.zip
@@ -95,39 +110,42 @@ RUN curl -L -o /opt/mobile-docker/bin/dependency-check.zip "https://github.com/j
 
 #OK#
 # Install Nuclei   
+ARG NUCLEI_VERSION=3.11.1
+ARG NUCLEI_SHA256_AMD64=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
+ARG NUCLEI_SHA256_ARM64=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) ARCH="amd64" ;; \
-      arm64) ARCH="arm64" ;; \
-      *) echo "[INFO] skipping nuclei: unsupported arch ${TARGETARCH}"; exit 0 ;; \
+      amd64) NUCLEI_SHA256="${NUCLEI_SHA256_AMD64}" ;; \
+      arm64) NUCLEI_SHA256="${NUCLEI_SHA256_ARM64}" ;; \
+      *) echo "[ERROR] unsupported architecture: ${TARGETARCH}"; exit 1 ;; \
     esac; \
-    RELEASE_API="https://api.github.com/repos/projectdiscovery/nuclei/releases/latest"; \
-    ASSET_URL=$(curl -sSL "$RELEASE_API" | jq -r --arg a "$ARCH" '.assets[] | select(.name|test("linux|"+$a)) | .browser_download_url' | head -n1); \
-    if [ -z "$ASSET_URL" ]; then echo "[ERROR] no nuclei asset found for ${ARCH}"; exit 1; fi; \
     TMPDIR=$(mktemp -d); \
-    curl -sSL "$ASSET_URL" -o "$TMPDIR/asset"; \
-    if file "$TMPDIR/asset" | grep -q 'Zip archive'; then unzip -q "$TMPDIR/asset" -d "$TMPDIR"; \
-    elif file "$TMPDIR/asset" | grep -q 'gzip compressed data'; then tar -C "$TMPDIR" -xzf "$TMPDIR/asset"; \
-    else mv "$TMPDIR/asset" "$TMPDIR/nuclei"; fi; \
-    BIN=$(find "$TMPDIR" -type f -name 'nuclei' -perm /111 | head -n1) || true; \
-    if [ -z "$BIN" ]; then echo "[ERROR] nuclei binary not found in $TMPDIR"; ls -la "$TMPDIR"; exit 1; fi; \
-    mv "$BIN" /usr/local/bin/nuclei; chmod +x /usr/local/bin/nuclei; \
-    rm -rf "$TMPDIR"; \
-    echo "[OK] nuclei installed: $(/usr/local/bin/nuclei -version || true)"
+    ASSET="nuclei_${NUCLEI_VERSION}_linux_${TARGETARCH}.zip"; \
+    curl -fsSL --retry 3 \
+      "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${ASSET}" \
+      -o "$TMPDIR/$ASSET"; \
+    echo "${NUCLEI_SHA256}  $TMPDIR/$ASSET" | sha256sum -c -; \
+    unzip -q "$TMPDIR/$ASSET" -d "$TMPDIR"; \
+    install -m 0755 "$TMPDIR/nuclei" /usr/local/bin/nuclei; \
+    case "$TMPDIR" in /tmp/tmp.*) rm -rf -- "$TMPDIR" ;; *) exit 1 ;; esac; \
+    /usr/local/bin/nuclei -version
 
 #OK#
-RUN mkdir -p /opt/mobile-docker/bin/radare2 && \
-    cd /opt/mobile-docker/bin/radare2 && \
-    git clone https://github.com/radareorg/radare2.git --depth=1 && \
-    cd radare2 && \
+ARG RADARE2_REF=8e2566b5478604ee34dca1f412af23beb7602036
+RUN mkdir -p /opt/mobile-docker/bin/radare2/radare2 && \
+    curl -fsSL --retry 3 "https://github.com/radareorg/radare2/archive/${RADARE2_REF}.tar.gz" | \
+        tar -xz --strip-components=1 -C /opt/mobile-docker/bin/radare2/radare2 && \
+    cd /opt/mobile-docker/bin/radare2/radare2 && \
     ./sys/install.sh 
 
 #Install disarm (x86_64 only)
+# The upstream tarball was removed, so use a pinned web-archive snapshot.
+ARG DISARM_SHA256=d320d6ef00e71ab4948040cb9f7601fd94ac1bc4eb58f3256768a4930cdc1a40
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
       echo "[INFO] Installing disarm (x86_64 only)..." && \
       mkdir -p /opt/mobile-docker/bin/disarm && \
-      # upstream tarball was removed; fall back to a stable web-archive snapshot
       curl -fsSL -o /opt/mobile-docker/bin/disarm/disarm.tar https://web.archive.org/web/20240401070850if_/https://newosxbook.com/tools/disarm.tar && \
+      echo "${DISARM_SHA256}  /opt/mobile-docker/bin/disarm/disarm.tar" | sha256sum -c - && \
       tar -xvf /opt/mobile-docker/bin/disarm/disarm.tar -C /opt/mobile-docker/bin/disarm && \
       chmod +x /opt/mobile-docker/bin/disarm/binaries/disarm.x86 && \
       ln -s /opt/mobile-docker/bin/disarm/binaries/disarm.x86 /usr/local/bin/disarm && \
@@ -137,16 +155,24 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     fi
 
 # Compile and install libplist >= 2.6.0
-RUN git clone https://github.com/libimobiledevice/libplist.git /tmp/libplist && \
+ARG LIBPLIST_REF=32428abacb909988e8e960a8845a6430b17b6a60
+RUN mkdir -p /tmp/libplist && \
+    curl -fsSL --retry 3 "https://github.com/libimobiledevice/libplist/archive/${LIBPLIST_REF}.tar.gz" | \
+        tar -xz --strip-components=1 -C /tmp/libplist && \
     cd /tmp/libplist && \
+    printf '%s\n' '2.7.0' > .tarball-version && \
     ./autogen.sh --prefix=/usr/local && \
     make -j$(nproc) && \
     make install && \
     cd ~ && rm -rf /tmp/libplist
 
 # Compile and install libimobiledevice-glue
-RUN git clone https://github.com/libimobiledevice/libimobiledevice-glue.git /tmp/libimobiledevice-glue && \
+ARG LIBIMOBILEDEVICE_GLUE_REF=da770a7687f35fbb981db4d7b47b1b032cd5c2c7
+RUN mkdir -p /tmp/libimobiledevice-glue && \
+    curl -fsSL --retry 3 "https://github.com/libimobiledevice/libimobiledevice-glue/archive/${LIBIMOBILEDEVICE_GLUE_REF}.tar.gz" | \
+        tar -xz --strip-components=1 -C /tmp/libimobiledevice-glue && \
     cd /tmp/libimobiledevice-glue && \
+    printf '%s\n' '1.3.2' > .tarball-version && \
     ./autogen.sh --prefix=/usr/local && \
     make -j$(nproc) && make install && \
     ldconfig && \
@@ -154,8 +180,12 @@ RUN git clone https://github.com/libimobiledevice/libimobiledevice-glue.git /tmp
 
 #OK#
 # Compile and install usbmuxd from source
-RUN git clone https://github.com/libimobiledevice/usbmuxd.git /tmp/usbmuxd && \
+ARG USBMUXD_REF=3ded00c9985a5108cfc7591a309f9a23d57a8cba
+RUN mkdir -p /tmp/usbmuxd && \
+    curl -fsSL --retry 3 "https://github.com/libimobiledevice/usbmuxd/archive/${USBMUXD_REF}.tar.gz" | \
+        tar -xz --strip-components=1 -C /tmp/usbmuxd && \
     cd /tmp/usbmuxd && \
+    printf '%s\n' '1.0.8' > .tarball-version && \
     ./autogen.sh --prefix=/usr/local && \
     make -j$(nproc) && make install && \
     cd / && rm -rf /tmp/usbmuxd
@@ -173,10 +203,13 @@ RUN apt-get update && \
 
 #OK#
 # Install hermes-dec in virtual env
-RUN git clone https://github.com/P1sec/hermes-dec.git /opt/mobile-docker/bin/hermes-dec && \
-    cd /opt/mobile-docker/bin/hermes-dec && \
-    ln -s /opt/mobile-docker/bin/hermes-dec/hbc_decompiler.py /usr/local/bin/hermes-dec && \
-    ln -s /opt/mobile-docker/bin/hermes-dec/hbc_disassembler.py /usr/local/bin/hermes-dis
+ARG HERMES_DEC_REF=a0f18f97ab661eb8ed659c8c683a0d21ea619e69
+RUN mkdir -p /opt/mobile-docker/bin/hermes-dec && \
+    curl -fsSL --retry 3 "https://github.com/P1sec/hermes-dec/archive/${HERMES_DEC_REF}.tar.gz" | \
+        tar -xz --strip-components=1 -C /opt/mobile-docker/bin/hermes-dec && \
+    pip install --no-cache-dir /opt/mobile-docker/bin/hermes-dec && \
+    ln -s /opt/mobile-docker/bin/hbc-decompiler /usr/local/bin/hermes-dec && \
+    ln -s /opt/mobile-docker/bin/hbc-disassembler /usr/local/bin/hermes-dis
 
 #NO#
 # Install pidcat
@@ -186,16 +219,26 @@ RUN git clone https://github.com/P1sec/hermes-dec.git /opt/mobile-docker/bin/her
 
 #OK#
 # Install JADX (CLI only)
-RUN wget https://github.com/skylot/jadx/releases/download/v1.4.7/jadx-1.4.7.zip -O /tmp/jadx.zip && \
+ARG JADX_VERSION=1.5.6
+ARG JADX_SHA256=545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974
+RUN curl -fsSL --retry 3 \
+        "https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip" \
+        -o /tmp/jadx.zip && \
+   echo "${JADX_SHA256}  /tmp/jadx.zip" | sha256sum -c - && \
    unzip /tmp/jadx.zip -d /opt/jadx && \
    ln -s /opt/jadx/bin/jadx /usr/local/bin/jadx && \
    rm /tmp/jadx.zip
 
 #OK#
 # Install APKTool
-#RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O /opt/apktool.jar && \
-#   echo '#!/bin/bash\njava -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
-#   chmod +x /usr/local/bin/apktool
+ARG APKTOOL_VERSION=3.0.3
+ARG APKTOOL_SHA256=dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423
+RUN curl -fsSL --retry 3 \
+        "https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar" \
+        -o /opt/apktool.jar && \
+   echo "${APKTOOL_SHA256}  /opt/apktool.jar" | sha256sum -c - && \
+   printf '%s\n' '#!/usr/bin/env bash' 'exec java -jar /opt/apktool.jar "$@"' > /usr/local/bin/apktool && \
+   chmod +x /usr/local/bin/apktool
 
 # — ANDROID SDK (latest cross-platform release) —
 
@@ -204,6 +247,7 @@ ARG TARGETARCH
 ARG ANDROID_SDK_ROOT=/opt/android-sdk
 ARG ANDROID_BUILD_TOOLS_VERSION=34.0.0
 ARG CMDLINE_TOOLS_VERSION=9477386
+ARG CMDLINE_TOOLS_SHA256=bd1aa17c7ef10066949c88dc6c9c8d536be27f992a1f3b5a584f9bd2ba5646a0
 ENV ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}
 ENV ANDROID_BUILD_TOOLS_VERSION=${ANDROID_BUILD_TOOLS_VERSION}
 RUN apt-get update && \
@@ -214,6 +258,7 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
     cd ${ANDROID_SDK_ROOT}/cmdline-tools && \
     wget https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip \
          -O cmdline-tools.zip && \
+    echo "${CMDLINE_TOOLS_SHA256}  cmdline-tools.zip" | sha256sum -c - && \
     unzip cmdline-tools.zip && \
     rm cmdline-tools.zip && \
     mv cmdline-tools latest
@@ -221,7 +266,9 @@ ENV PATH=${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${PATH}
 
 # ========= ANDROID SDK (AMD64) INICIO =========
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses && \
+      set +o pipefail; \
+      yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses; \
+      set -o pipefail; \
       sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
         "platform-tools" \
         "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"; \
@@ -256,8 +303,13 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 
 #OK#
 # Install uber-apk-signer
-RUN wget https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar -O /opt/uber-apk-signer.jar && \
-   echo '#!/bin/bash\njava -jar /opt/uber-apk-signer.jar "$@"' > /usr/local/bin/uber-apk-signer && \
+ARG UBER_APK_SIGNER_VERSION=1.3.0
+ARG UBER_APK_SIGNER_SHA256=e1299fd6fcf4da527dd53735b56127e8ea922a321128123b9c32d619bba1d835
+RUN curl -fsSL --retry 3 \
+        "https://github.com/patrickfav/uber-apk-signer/releases/download/v${UBER_APK_SIGNER_VERSION}/uber-apk-signer-${UBER_APK_SIGNER_VERSION}.jar" \
+        -o /opt/uber-apk-signer.jar && \
+   echo "${UBER_APK_SIGNER_SHA256}  /opt/uber-apk-signer.jar" | sha256sum -c - && \
+   printf '%s\n' '#!/usr/bin/env bash' 'exec java -jar /opt/uber-apk-signer.jar "$@"' > /usr/local/bin/uber-apk-signer && \
    chmod +x /usr/local/bin/uber-apk-signer
 
 # Install justtrustme (assuming Xposed module, placeholder for manual APK handling)
@@ -266,7 +318,10 @@ RUN wget https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/
 
 #OK#
 # Install apkx with venv wrapper (script expects python interpreter)
-RUN git clone https://github.com/b-mueller/apkx.git /opt/apkx && \
+ARG APKX_REF=fcb74ff37c9fe4428d7ff11a4863c273096698e8
+RUN mkdir -p /opt/apkx && \
+   curl -fsSL --retry 3 "https://github.com/b-mueller/apkx/archive/${APKX_REF}.tar.gz" | \
+      tar -xz --strip-components=1 -C /opt/apkx && \
    cd /opt/apkx && \
    chmod +x apkx && \
    printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/apkx/apkx "$@"\n' > /usr/local/bin/apkx && \
@@ -277,111 +332,54 @@ RUN git clone https://github.com/b-mueller/apkx.git /opt/apkx && \
 #################
 
 # Install Fridump (provide wrapper to execute with venv python)
-RUN git clone https://github.com/Nightbringer21/fridump.git /opt/mobile-docker/bin/fridump && \
+ARG FRIDUMP_REF=3e64ee0b0e3dbd7e1aa295077c9ba0728a2bc68f
+RUN mkdir -p /opt/mobile-docker/bin/fridump && \
+   curl -fsSL --retry 3 "https://github.com/Nightbringer21/fridump/archive/${FRIDUMP_REF}.tar.gz" | \
+      tar -xz --strip-components=1 -C /opt/mobile-docker/bin/fridump && \
    cd /opt/mobile-docker/bin/fridump && \
    chmod +x fridump.py && \
    printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/mobile-docker/bin/fridump/fridump.py "$@"\n' > /usr/local/bin/fridump && \
    chmod +x /usr/local/bin/fridump
 
 # Install frida-ios-dump
-RUN git clone https://github.com/AloneMonkey/frida-ios-dump.git /opt/frida-ios-dump && \
+ARG FRIDA_IOS_DUMP_REF=56e99b2138fc213fa759b3aeb9717a1fb4ec6a59
+RUN mkdir -p /opt/frida-ios-dump && \
+   curl -fsSL --retry 3 "https://github.com/AloneMonkey/frida-ios-dump/archive/${FRIDA_IOS_DUMP_REF}.tar.gz" | \
+      tar -xz --strip-components=1 -C /opt/frida-ios-dump && \
    cd /opt/frida-ios-dump && \
-   /opt/mobile-docker/bin/pip3.12 install -r requirements.txt && \
+   python3.12 -m venv /opt/frida-ios-dump-venv && \
+   /opt/frida-ios-dump-venv/bin/pip install --no-cache-dir \
+      -r requirements.txt frida==17.18.0 frida-tools==14.10.4 && \
    chmod +x dump.py && \
-   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/frida-ios-dump/dump.py "$@"\n' > /usr/local/bin/frida-ios-dump && \
+   printf '#!/usr/bin/env bash\nexec /opt/frida-ios-dump-venv/bin/python /opt/frida-ios-dump/dump.py "$@"\n' > /usr/local/bin/frida-ios-dump && \
    chmod +x /usr/local/bin/frida-ios-dump
-
-# Install frida-ipa-dump (assuming a similar tool, using a placeholder if no official repo)
-RUN git clone https://github.com/AloneMonkey/frida-ios-dump.git /opt/frida-ipa-dump && \
-   cd /opt/frida-ipa-dump && \
-   /opt/mobile-docker/bin/pip3.12 install -r requirements.txt && \
-   chmod +x dump.py && \
-   printf '#!/usr/bin/env bash\nexec /opt/mobile-docker/bin/python /opt/frida-ipa-dump/dump.py "$@"\n' > /usr/local/bin/frida-ipa-dump && \
-   chmod +x /usr/local/bin/frida-ipa-dump && \
-   echo "Note: frida-ipa-dump is assumed to be similar to frida-ios-dump; adjust if a different tool #is intended" > /usr/local/bin/frida-ipa-dump-note
 
 
 #OK#
 # Install Busybox (already included in apt-get above, ensure symlink)
-RUN ln -s /bin/busybox /usr/local/bin/busybox
+RUN ln -sf /bin/busybox /usr/local/bin/busybox
 
-#OK#
-# Install Frida and related tools in virtual env
-# I added the frida commands as ln  
-RUN /opt/mobile-docker/bin/pip3.12 install frida frida-tools
-RUN ln -s /opt/mobile-docker/bin/frida /usr/local/bin/frida
-RUN ln -s /opt/mobile-docker/bin/frida-ps /usr/local/bin/frida-ps
-RUN ln -s /opt/mobile-docker/bin/frida-itrace /usr/local/bin/frida-itrace
-RUN ln -s /opt/mobile-docker/bin/frida-apk /usr/local/bin/frida-apk
-RUN ln -s /opt/mobile-docker/bin/frida-compile /usr/local/bin/frida-compile
-RUN ln -s /opt/mobile-docker/bin/frida-create /usr/local/bin/frida-create
-RUN ln -s /opt/mobile-docker/bin/frida-discover /usr/local/bin/frida-discover
-RUN ln -s /opt/mobile-docker/bin/frida-join /usr/local/bin/frida-join
-RUN ln -s /opt/mobile-docker/bin/frida-kill /usr/local/bin/frida-kill
-RUN ln -s /opt/mobile-docker/bin/frida-ls /usr/local/bin/frida-ls
-RUN ln -s /opt/mobile-docker/bin/frida-ls-devices /usr/local/bin/frida-ls-devices
-RUN ln -s /opt/mobile-docker/bin/frida-pull /usr/local/bin/frida-pull
-RUN ln -s /opt/mobile-docker/bin/frida-push /usr/local/bin/frida-push
-RUN ln -s /opt/mobile-docker/bin/frida-rm /usr/local/bin/frida-rm
-RUN ln -s /opt/mobile-docker/bin/frida-trace /usr/local/bin/frida-trace
+# Install Python-based tooling in one resolved, version-pinned transaction.
+RUN pip install --no-cache-dir \
+      frida==17.18.0 \
+      frida-tools==14.10.4 \
+      objection==1.12.5 \
+      apkid==3.1.0 \
+      semgrep==1.177.0 \
+      apkleaks==2.6.3 \
+      angr==9.3.4 \
+      unicorn==2.1.4 \
+      blint==3.4.0 \
+      reflutter==0.8.6 \
+      jnitrace==3.3.1
 
-# Install objection in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install objection
-RUN ln -s /opt/mobile-docker/bin/objection /usr/local/bin/objection
-
-# Install APKID in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install apkid
-RUN ln -s /opt/mobile-docker/bin/apkid /usr/local/bin/apkid
-
-# Install Semgrep in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install semgrep
-RUN ln -s /opt/mobile-docker/bin/semgrep /usr/local/bin/semgrep
-
-# Install APKLeaks in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install apkleaks
-RUN ln -s /opt/mobile-docker/bin/apkleaks /usr/local/bin/apkleaks
-
-# Install angr in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install angr
-RUN ln -s /opt/mobile-docker/bin/angr /usr/local/bin/angr
-
-# Install blint in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install blint
-RUN ln -s /opt/mobile-docker/bin/blint /usr/local/bin/blint
-
-# Install reflutter in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install reflutter==0.8.5
-RUN ln -s /opt/mobile-docker/bin/reflutter /usr/local/bin/reflutter
-
-# Install jnitrace in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install jnitrace
-RUN ln -s /opt/mobile-docker/bin/jnitrace /usr/local/bin/jnitrace
-
-# Install mitmproxy in virtual env
-RUN /opt/mobile-docker/bin/pip3.12 install mitmproxy
-RUN /opt/mobile-docker/bin/pip3.12 install "bcrypt<4" && \
-    /opt/mobile-docker/bin/python - <<'PY'
-import bcrypt, sys
-sys.exit(0 if bcrypt.__version__.startswith("3.") else 1)
-PY
-RUN ln -s /opt/mobile-docker/bin/mitmproxy /usr/local/bin/mitmproxy
-
-# Ensure CLI wrappers use the virtual environment's interpreter
-RUN printf '%s\n' '#!/usr/bin/env bash' \
-    'exec /opt/mobile-docker/bin/python /opt/apkx/apkx "$@"' \
-    > /usr/local/bin/apkx && chmod +x /usr/local/bin/apkx
-RUN printf '%s\n' '#!/usr/bin/env bash' \
-    'exec /opt/mobile-docker/bin/python /opt/mobile-docker/bin/fridump/fridump.py "$@"' \
-    > /usr/local/bin/fridump && chmod +x /usr/local/bin/fridump
-RUN printf '%s\n' '#!/usr/bin/env bash' \
-    'exec /opt/mobile-docker/bin/python /opt/frida-ios-dump/dump.py "$@"' \
-    > /usr/local/bin/frida-ios-dump && chmod +x /usr/local/bin/frida-ios-dump
-RUN printf '%s\n' '#!/usr/bin/env bash' \
-    'exec /opt/mobile-docker/bin/python /opt/frida-ipa-dump/dump.py "$@"' \
-    > /usr/local/bin/frida-ipa-dump && chmod +x /usr/local/bin/frida-ipa-dump
-
-# Install jdb (already included with OpenJDK, just ensure symlink)
-RUN ln -s /usr/lib/jvm/java-17-openjdk-amd64/bin/jdb /usr/local/bin/jdb
+# Keep mitmproxy isolated from the main tooling environment: its pinned
+# dependency set conflicts with blint on Python 3.12.
+RUN python3.12 -m venv /opt/mitmproxy-venv && \
+    /opt/mitmproxy-venv/bin/pip install --no-cache-dir mitmproxy==12.2.3 && \
+    ln -sf /opt/mitmproxy-venv/bin/mitmproxy /usr/local/bin/mitmproxy && \
+    ln -sf /opt/mitmproxy-venv/bin/mitmdump /usr/local/bin/mitmdump && \
+    ln -sf /opt/mitmproxy-venv/bin/mitmweb /usr/local/bin/mitmweb
 
 
 
@@ -403,10 +401,11 @@ RUN ln -s /usr/lib/jvm/java-17-openjdk-amd64/bin/jdb /usr/local/bin/jdb
 # IOS APPLICATIONS     # 
 ########################  
 
-# Install otool and nm (macOS-specific, so we'll use binutils equivalents for Linux)
-RUN apt-get update && apt-get install -y binutils && \
-    ln -s /usr/bin/objdump /usr/local/bin/otool && \
-    ln -s /usr/bin/nm /usr/local/bin/nm
+# Install GNU binary utilities. Do not alias objdump as otool: their command-line
+# interfaces and Mach-O support are not equivalent.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends binutils && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Install plutil (macOS-specific, using libplist-utils instead)
 #RUN apt-get install -y libplist-utils && \
@@ -491,8 +490,41 @@ RUN apt-get update && apt-get install -y binutils && \
 #    rm /tmp/proguard.tar.gz
 
 
-# Set working directory
-WORKDIR /just-mobile-security-mobile-docker
+# Automatic BuildKit args are declared late so earlier install layers stay
+# cacheable when only smoke-test behavior changes.
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+
+# Fail the image build if an advertised command is missing. Tools that need a
+# device or a target are only checked for a valid entry point here.
+RUN set -eux; \
+    for command in \
+      dependency-check nuclei r2 hbc-decompiler hbc-disassembler \
+      hermes-dec hermes-dis jadx apktool \
+      adb fastboot apksigner aapt uber-apk-signer apkx fridump \
+      frida-ios-dump busybox frida frida-ps objection apkid semgrep \
+      apkleaks blint reflutter jnitrace mitmproxy jdb nm objdump \
+      iproxy ideviceinstaller lldb; \
+    do \
+      command -v "$command" >/dev/null; \
+    done; \
+    if [ "$TARGETARCH" = "amd64" ]; then command -v aapt2 >/dev/null; fi; \
+    if [ "$BUILDPLATFORM" = "$TARGETPLATFORM" ]; then \
+      python -c 'import angr, frida; from angr.state_plugins import unicorn_engine; assert unicorn_engine.unicorn is not None'; \
+      frida --version; \
+    else \
+      python -c 'from importlib.metadata import version; assert version("angr") == "9.3.4"; assert version("frida") == "17.18.0"; assert version("unicorn") == "2.1.4"'; \
+    fi; \
+    nuclei -version; \
+    jadx --version; \
+    apktool --version; \
+    mitmproxy --version; \
+    r2 -v; \
+    adb version; \
+    jdb -version
+
+# Match the workspace mounted by the documented docker run command.
+WORKDIR /workspace
 
 # Default command
 CMD ["/bin/zsh"]

@@ -14,11 +14,13 @@
 ```                                                
 
 # just-mobile-security-mobile-docker
-This Docker aims to help to the Mobile Cybersecurity Community to have several Android and iOS Tools pre-configured.
+This Docker image provides a pre-configured collection of Android, iOS, and generic mobile security tools.
 
-This docker was tested for Ubuntu 22.04 and using the [MASTG TOOLS](https://mas.owasp.org/MASTG/tools) as reference. Covering the Generic, Android, iOS and Network tools in case it applies.
+The image is based on Ubuntu 22.04 and uses the [OWASP MASTG tool catalog](https://mas.owasp.org/MASTG/tools) as a reference.
 
-The full list implemented is covered in the following documment [Docker MASWE List Android & iOS](https://docs.google.com/spreadsheets/d/10kHjVb7YZzyA_nzCAFTjtfaSZa9TnsAgILbttIPcYTE/edit?gid=1839499844#gid=1839499844)
+The [Docker MASTG List Android & iOS](https://docs.google.com/spreadsheets/d/10kHjVb7YZzyA_nzCAFTjtfaSZa9TnsAgILbttIPcYTE/edit?gid=1839499844#gid=1839499844) is a planning matrix. The Dockerfile's final smoke test and the multi-architecture CI build are the source of truth for tools included in the image.
+
+Core validated commands include `adb`, `fastboot`, `apktool`, `jadx`, `apksigner`, `nuclei`, `radare2`, `frida`, `objection`, `semgrep`, `mitmproxy`, `iproxy`, and `frida-ios-dump`. Architecture-specific tools are validated only where they are installed; for example, `disarm` and Google's `aapt2` build are AMD64-only.
 
 ## Responsible Use
 
@@ -41,15 +43,26 @@ Windows — [Install Docker Desktop for Windows](https://docs.docker.com/desktop
 
 ### How to run it?
 
-1. Download the git project.
-2. Build the docker container.
-> sudo docker build -t just-mobile-security-mobile-docker .
-3. Run the container
-> docker run -it --rm -v $(pwd):/workspace just-mobile-security-mobile-docker	
+1. Clone this repository.
+2. Build the image:
+
+```bash
+docker build -t just-mobile-security-mobile-docker .
+```
+
+3. Run the container with the current directory mounted as the workspace:
+
+```bash
+docker run -it --rm -v "$(pwd):/workspace" just-mobile-security-mobile-docker
+```
+
+The container runs as root because some device tooling requires elevated access. Mount only a trusted working directory and do not expose the Docker socket or unrelated host directories.
 
 After that you only need to use the docker image as the following example.
 
-> $ jadx
+```bash
+jadx --version
+```
 
 
 ## Mobile Device Wi‑Fi Connectivity Guide
@@ -83,13 +96,17 @@ adb devices
 ```
 ### Android: Frida over Wi‑Fi
 
-Push and start the Frida server on the device:
+Start Frida on the device's loopback interface, then forward its port through the existing ADB connection. This avoids exposing a root Frida service to the Wi-Fi network:
+
 ```
-adb shell "su -c 'nohup /data/local/tmp/frida-server 0.0.0.0:27042 >/dev/null 2>&1 &'"
+adb shell "su -c 'nohup /data/local/tmp/frida-server >/dev/null 2>&1 &'"
+adb forward tcp:27042 tcp:27042
 ```
-From inside the container, list processes via Frida:
+
+List processes through the local forwarded port:
+
 ```
-frida-ps -H <DEVICE_IP>:27042
+frida-ps -H 127.0.0.1:27042
 ```
 
 ### iOS: Frida via SSH + Wi‑Fi
@@ -98,15 +115,16 @@ frida-ps -H <DEVICE_IP>:27042
 
 From inside the container, establish an SSH tunnel:
 ```
-ssh -o ExitOnForwardFailure=yes -fNT -L 27042:127.0.0.1:27042 root@<IPHONE_IP>
+ssh -S /tmp/frida-ios-tunnel -M -o ExitOnForwardFailure=yes -fNT \
+  -L 27042:127.0.0.1:27042 root@<IPHONE_IP>
 ```
 Verify the tunnel and list processes remotely:
 ```
 frida-ps -H 127.0.0.1:27042
 ```
-To close the tunnel when you’re done:
+To close the tunnel when you're done:
 ```
-pkill -9 -f 'ssh.*27042'
+ssh -S /tmp/frida-ios-tunnel -O exit root@<IPHONE_IP>
 ```
 
 ## Additional tool implementations
