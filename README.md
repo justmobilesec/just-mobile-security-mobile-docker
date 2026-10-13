@@ -26,6 +26,10 @@ Core validated commands include `adb`, `fastboot`, `apktool`, `jadx`, `apksigner
 
 This toolkit gathers penetration testing and research utilities. Use it only on systems where you have explicit permission and comply with all applicable laws. The maintainers do not endorse or take responsibility for malicious or unauthorized activity carried out with this image.
 
+## Responsible Use
+
+This toolkit gathers penetration testing and research utilities. Use it only on systems where you have explicit permission and comply with all applicable laws. The maintainers do not endorse or take responsibility for malicious or unauthorized activity carried out with this image.
+
 ## Prerequisites
 
 Docker Desktop is required to run this project locally. Please install Docker Desktop for your operating system before continuing.
