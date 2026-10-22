@@ -360,6 +360,7 @@ RUN mkdir -p /opt/frida-ios-dump && \
 RUN ln -sf /bin/busybox /usr/local/bin/busybox
 
 # Install Python-based tooling in one resolved, version-pinned transaction.
+# angr 9.3.4 needs these transitive APIs: ConstBitStream and pycparser 3.0's lexer behavior.
 RUN pip install --no-cache-dir \
       frida==17.18.0 \
       frida-tools==14.10.4 \
@@ -368,6 +369,8 @@ RUN pip install --no-cache-dir \
       semgrep==1.177.0 \
       apkleaks==2.6.3 \
       angr==9.3.4 \
+      bitstring==4.4.0 \
+      pycparser==3.0 \
       unicorn==2.1.4 \
       blint==3.4.0 \
       reflutter==0.8.6 \
